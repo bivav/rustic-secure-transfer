@@ -1,0 +1,11 @@
+[package]
+name = "rustic-secure-transfer"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+anyhow = "1.0.79"
+ring = "0.17.7"
+tokio = { version = "1.36.0", features = ["full"] }
