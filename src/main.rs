@@ -1,4 +1,5 @@
 use std::error::Error;
+use std::process::exit;
 
 use anyhow::Result;
 use clap::{Arg, Command};
@@ -11,9 +12,7 @@ const APP_ABOUT: &str = "Transfers files securely";
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-
-
-    // let args = std::env::args().collect::<Vec<String>>();
+    println!("File Transfer App Started...");
 
     let args = Command::new(APP_NAME)
         .version(VERSION)
@@ -32,13 +31,15 @@ async fn main() -> Result<(), Box<dyn Error>> {
             .index(3))
         .get_matches();
 
-    println!("File Transfer App Started");
     let config = Config::from_matches(&args);
 
     match config.mode.as_str() {
         "get" => {
-            println!("Get file: {}", &config.file_path);
-            let port = 8080;
+            println!("Getting file through port: {}", &config.destination);
+
+            let port = config.destination.clone();
+            let port = port.parse::<u16>()?;
+
             SecureTransfer::start_receiving(port).await?;
         }
         "send" => {
@@ -55,7 +56,17 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
             let serialized_metadata = serde_json::to_string(&metadata)?;
 
-            let mut stream = SecureTransfer::connect_to_client(&config.destination).await?;
+            let (address, port) = match config.destination.find(":") {
+                None => {
+                    println!("Invalid IP address and port format. It should be in the form IP:Port.");
+                    exit(1)
+                }
+                Some(index) => {
+                    config.destination.split_at(index)
+                }
+            };
+
+            let mut stream = SecureTransfer::connect_to_client(&address, &port).await?;
             SecureTransfer::send_metadata(&mut stream, &serialized_metadata).await?;
 
             println!("File content length: {}", file_content.len());

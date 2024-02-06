@@ -75,9 +75,9 @@ impl SecureTransfer {
         Ok(())
     }
 
-    pub async fn connect_to_client(address: &str) -> Result<TcpStream> {
-        println!("Connecting to client at {}", address);
-        let stream = TcpStream::connect(format!("{}:{}", address, "8080")).await?;
+    pub async fn connect_to_client(address: &str, port: &str) -> Result<TcpStream> {
+        println!("Connecting to client at {}:{}", address, port);
+        let stream = TcpStream::connect(format!("{}{}", address, port)).await?;
         Ok(stream)
     }
 
@@ -86,7 +86,7 @@ impl SecureTransfer {
 
         loop {
             let (mut socket, addr) = listener.accept().await?;
-            println!("Accepted connection from: {}", addr);
+            println!("Connection accepted from: {}", addr);
             tokio::spawn(async move {
                 let mut buffer = [0; 1024];
                 match socket.read(&mut buffer).await {
