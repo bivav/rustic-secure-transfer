@@ -11,7 +11,7 @@ const APP_ABOUT: &str = "Transfers files securely";
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-    println!("File Transfer App Started");
+
 
     // let args = std::env::args().collect::<Vec<String>>();
 
@@ -22,16 +22,17 @@ async fn main() -> Result<(), Box<dyn Error>> {
             .help("Mode: 'get' for receiving or 'send' for sending a file")
             .required(true)
             .index(1))
-        .arg(Arg::new("file")
-            .help("The file path to send")
-            .required_if_eq("mode", "send")
-            .index(2))
         .arg(Arg::new("destination")
             .help("The IP address with port to send to or port to listen on")
             .required(true)
+            .index(2))
+        .arg(Arg::new("file")
+            .help("The file path to send")
+            .required_if_eq("mode", "send")
             .index(3))
         .get_matches();
 
+    println!("File Transfer App Started");
     let config = Config::from_matches(&args);
 
     match config.mode.as_str() {

@@ -1,4 +1,3 @@
-use std::fs;
 use std::path::Path;
 
 use anyhow::{Context, Result};
@@ -19,12 +18,18 @@ impl Config {
     pub fn from_matches(matches: &ArgMatches) -> Config {
         let mode = matches.get_one::<String>("mode").unwrap().to_string();
 
-        let file_path = matches.get_one::<String>("file").unwrap().to_string();
+        let file_path = matches.get_one::<String>("file")
+            .map(|fp| Path::new(fp).to_path_buf())
+            .unwrap_or_default();
 
-        let path = Path::new(&file_path);
-        let full_path = fs::canonicalize(path).unwrap().display().to_string();
+        let full_path = file_path.canonicalize()
+            .map(|p| p.to_string_lossy().into_owned())
+            .unwrap_or_default();
 
-        let file_name = path.file_name().unwrap().to_string_lossy();
+        let file_name = file_path.file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_default();
+
         // let (_, file_name) = file_path.split_at(file_path.rfind("/").unwrap() + 1);
 
         let destination = matches.get_one::<String>("destination").unwrap().to_string();
