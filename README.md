@@ -41,7 +41,7 @@ cargo run -- get 8000
 
 #### Planned Features
 
-- Encrypt and decrypt file content using a symmetric key such as AES.
+- Encrypt and decrypt file content using a symmetric key such as AES.2
 
 ## Dependencies
 
