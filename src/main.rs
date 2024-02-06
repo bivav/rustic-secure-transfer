@@ -80,7 +80,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
             SecureTransfer::send_metadata_and_hash(&config, &mut stream).await?;
 
             // println!("File content length: {}", file_content.content.len());
-            println!("Sending file to: {}{}", address, port);
+
             // println!("Hash: {:?}", hex::encode(metadata.hash));
 
 

@@ -1,10 +1,10 @@
-use std::net::SocketAddr;
 use std::str::from_utf8;
-use std::time::Duration;
 
 use anyhow::{Context, Result};
 use ring::digest;
+use ring::digest::SHA256;
 use serde::{Deserialize, Serialize};
+// use serde_json::Value::String;
 use tokio::fs::File;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
@@ -21,7 +21,7 @@ pub struct FileReadResult {
     pub hash: Vec<u8>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct FileMetadata {
     transaction_id: String,
     pub file_name: String,
@@ -52,36 +52,31 @@ impl SecureTransfer {
     }
 
     pub async fn stream_file_and_compute_hash(mut file: File, transaction_id: String, stream: &mut TcpStream) -> Result<()> {
-        // let mut file = File::open(&self.path)
-        //     .await
-        //     .context("Failed to open file")?;
-        // let mut content = vec![];
-        // file.read_to_end(&mut content)
-        //     .await
-        //     .context("Failed to read file contents")?;
-
-        // let hash = EncryptDecrypt::get_hash(&content);
-
         let mut buffer = [0; 64000];
-        let mut hash_context = digest::Context::new(&digest::SHA256);
+        let mut hash_context = digest::Context::new(&SHA256);
 
+        // let start_file = b"--START OF FILE--";
 
+        // stream.write_all(start_file).await.context("Failed to send start delimiter")?;
 
-        while let Ok(bytes) = file.read(&mut buffer).await {
-            if bytes == 0 { break;}
-            stream.write_all(&buffer[..bytes]).await?;
+        loop {
+            let bytes = file.read(&mut buffer).await.context("Failed to read file content")?;
+            if bytes == 0 { break; }
+            stream.write_all(&buffer[..bytes]).await.context("Failed to send file chunk")?;
             hash_context.update(&buffer[..bytes]);
         }
 
-        println!("Here");
+        // stream.write_all(b"--END OF FILE--").await.context("Failed to send EOF delimiter")?;
 
-        let hash_message = HashMessage {
-            transaction_id: transaction_id.to_string(),
-            hash: hash_context.finish().as_ref().to_vec(),
-        };
+        println!("File content sent with transaction ID: {}", transaction_id);
 
-        let serialized = serde_json::to_string(&hash_message)?;
-        stream.write_all(serialized.as_bytes()).await?;
+        // let hash_message = HashMessage {
+        //     transaction_id: transaction_id.to_string(),
+        //     hash: hash_context.finish().as_ref().to_vec(),
+        // };
+
+        // let serialized = serde_json::to_string(&hash_message)?;
+        // stream.write_all(serialized.as_bytes()).await?;
 
 
         Ok(())
@@ -98,8 +93,8 @@ impl SecureTransfer {
     }
 
     pub async fn connect_to_client(address: &str, port: &str) -> Result<TcpStream> {
-        println!("Connecting to client at {}:{}", address, port);
         let stream = TcpStream::connect(format!("{}{}", address, port)).await?;
+        println!("Connecting to client at {}:{}", address, port);
         Ok(stream)
     }
 
@@ -110,36 +105,67 @@ impl SecureTransfer {
             let (mut socket, addr) = listener.accept().await?;
             println!("Connection accepted from: {}", addr);
             tokio::spawn(async move {
-                let mut buffer = [0; 1024];
-                match socket.read(&mut buffer).await {
-                    Ok(size) => {
-                        println!("Received {} bytes: {:?}", size, &buffer[..10]);
+                let mut overall_buffer = Vec::new();
 
-                        // Check if there's more than just the length bytes
-                        if size > 8 {
-                            // Skip the first 8 bytes and deserialize
-                            match serde_json::from_slice::<FileMetadata>(&buffer[8..size]) {
-                                Ok(metadata) => {
-                                    println!("Received metadata: File name: '{}', File size: {} bytes",
-                                             metadata.file_name, metadata.file_size);
-                                }
-                                Err(e) => {
-                                    println!("Failed to deserialize metadata: {}", e);
-                                }
-                            }
-                        } else {
-                            println!("Not enough data to deserialize metadata");
+                loop {
+                    let mut buffer = [0; 1024];
+                    if let Ok(size) = socket.read(&mut buffer).await {
+                        if size == 0 {
+                            break; // Connection closed or all data received
                         }
-
-                        tokio::time::sleep(Duration::from_secs(2)).await;
-                        Self::send_acknowledgment(&mut socket, addr).await.context("Couldn't send ack").expect("TODO: panic message");
+                        // print!("Received {} bytes: ", size);
+                        overall_buffer.extend_from_slice(&buffer[..size]);
+                    } else {
+                        break;
                     }
-                    Err(e) => {
-                        println!("Failed to receive data: {}", e);
+                    // print!("Received {} bytes: ", overall_buffer.len());
+                }
+
+                println!("Received {} bytes.", overall_buffer.len());
+
+                if let Ok(metadata) = SecureTransfer::extract_metadata(&overall_buffer) {
+                    println!("Received metadata: {:?}", metadata);
+                    if let Err(e) = Self::send_acknowledgment(&mut socket, "Metadata received.").await {
+                        println!("Error sending acknowledgment: {}", e);
+                    }
+
+                    // Save the file content to a file
+                    let file_content = &overall_buffer.split_off((overall_buffer.len() as u64 - metadata.file_size) as usize);
+
+                    let (_, extension) = metadata.file_name.split_at(metadata.file_name.rfind(".").unwrap_or(0));
+
+                    if let Ok(mut file) = File::create(format!("file{}", extension)).await {
+                        file.write_all(&file_content).await.context("Failed to write file content").expect("TODO: panic message");
+                    } else {
+                        println!("Failed to create file");
                     }
                 }
             });
         }
+    }
+
+    pub fn extract_metadata(buffer: &Vec<u8>) -> Result<FileMetadata> {
+        if buffer.len() < 8 {
+            return Err(anyhow::anyhow!("Buffer too short, can't contain metadata length"));
+        }
+
+        let metadata_length_bytes: [u8; 8] = buffer[0..8]
+            .try_into()
+            .context("Failed to extract metadata length")?;
+
+        let metadata_length = u64::from_be_bytes(metadata_length_bytes) as usize;
+
+        if buffer.len() < 8 + metadata_length {
+            return Err(anyhow::anyhow!("Buffer too short for the specified metadata length"));
+        }
+
+        let metadata_str = from_utf8(&buffer[8..8 + metadata_length])
+            .context("Failed to convert metadata to UTF-8 string")?;
+
+        let metadata: FileMetadata = serde_json::from_str(metadata_str)
+            .context("Failed to deserialize metadata")?;
+
+        Ok(metadata)
     }
 
     pub async fn send_metadata_and_hash(config: &Config, stream: &mut TcpStream) -> Result<()> {
@@ -151,10 +177,13 @@ impl SecureTransfer {
 
         let serialized_metadata = serde_json::to_string(&metadata)?;
 
-        SecureTransfer::send_metadata(stream, &serialized_metadata).await?;
-        SecureTransfer::wait_for_acknowledgment(stream).await?;
+        if let Err(err) = Self::send_metadata(stream, &serialized_metadata).await {
+            println!("Error sending metadata: {}", err);
+        }
 
-        Self::stream_file_and_compute_hash(file, transaction_id.clone(), stream).await?;
+        if let Err(err) = Self::stream_file_and_compute_hash(file, transaction_id.clone(), stream).await {
+            println!("Error streaming file and computing hash: {}", err);
+        }
 
         Ok(())
     }
@@ -163,26 +192,25 @@ impl SecureTransfer {
         let metadata_length = metadata.len() as u64;
         stream.write_all(&metadata_length.to_be_bytes()).await.context("Failed to write metadata length")?;
         stream.write_all(&metadata.as_bytes()).await.context("Failed to write metadata")?;
+        println!("Metadata sent: {}", metadata);
+        // tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+        // println!("Waited 2 seconds");
+        // if let Err(err) = Self::wait_for_acknowledgment(stream).await {
+        //     println!("Error waiting for acknowledgment: {}", err);
+        // }
         Ok(())
     }
 
-    pub async fn send_acknowledgment(stream: &mut TcpStream, address: SocketAddr) -> Result<()> {
-        let message = "ACK";
-        println!("Sending acknowledgement to: {} with message {}", address, message);
-        stream.write_all(message.as_bytes()).await?;
+    pub async fn send_acknowledgment(stream: &mut TcpStream, message: &str) -> Result<()> {
+        stream.write_all(message.as_bytes()).await.context("Failed to send acknowledgment")?;
         Ok(())
     }
 
     pub async fn wait_for_acknowledgment(stream: &mut TcpStream) -> Result<()> {
         let mut buffer = [0; 1024];
-
         let bytes = stream.read(&mut buffer).await?;
-
-        // decoding received bytes
         let message = from_utf8(&buffer[..bytes])?;
-
-        println!("Received ACK: {:?}", message);
-
+        println!("Received ACK: {}", message);
         Ok(())
     }
 }
