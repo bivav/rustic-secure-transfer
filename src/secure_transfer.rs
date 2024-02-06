@@ -12,6 +12,8 @@ use uuid::Uuid;
 
 use rustic_secure_transfer::Config;
 
+use crate::file_encrypt_decrypt::EncryptDecrypt;
+
 pub struct SecureTransfer {
     pub path: String,
 }
@@ -28,7 +30,7 @@ pub struct FileMetadata {
     pub file_size: u64,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 struct HashMessage {
     transaction_id: String,
     hash: Vec<u8>,
@@ -45,19 +47,14 @@ impl FileMetadata {
 }
 
 impl SecureTransfer {
-    pub fn new(path: &str) -> SecureTransfer {
-        SecureTransfer {
-            path: path.to_string(),
-        }
-    }
-
     pub async fn stream_file_and_compute_hash(mut file: File, transaction_id: String, stream: &mut TcpStream) -> Result<()> {
         let mut buffer = [0; 64000];
         let mut hash_context = digest::Context::new(&SHA256);
 
-        // let start_file = b"--START OF FILE--";
+        let start_file = b"--START OF FILE--";
+        let end_file = b"--END OF FILE--";
 
-        // stream.write_all(start_file).await.context("Failed to send start delimiter")?;
+        stream.write_all(start_file).await.context("Failed to send start delimiter")?;
 
         loop {
             let bytes = file.read(&mut buffer).await.context("Failed to read file content")?;
@@ -66,18 +63,19 @@ impl SecureTransfer {
             hash_context.update(&buffer[..bytes]);
         }
 
-        // stream.write_all(b"--END OF FILE--").await.context("Failed to send EOF delimiter")?;
+        stream.write_all(end_file).await.context("Failed to send EOF delimiter")?;
 
         println!("File content sent with transaction ID: {}", transaction_id);
 
-        // let hash_message = HashMessage {
-        //     transaction_id: transaction_id.to_string(),
-        //     hash: hash_context.finish().as_ref().to_vec(),
-        // };
+        let hash_message = HashMessage {
+            transaction_id: transaction_id.to_string(),
+            hash: hash_context.finish().as_ref().to_vec(),
+        };
 
-        // let serialized = serde_json::to_string(&hash_message)?;
-        // stream.write_all(serialized.as_bytes()).await?;
+        let serialized = serde_json::to_string(&hash_message)?;
+        stream.write_all(serialized.as_bytes()).await.context("Failed to send hash message")?;
 
+        println!("File hash: {:?}", hex::encode(hash_message.hash));
 
         Ok(())
     }
@@ -111,14 +109,12 @@ impl SecureTransfer {
                     let mut buffer = [0; 1024];
                     if let Ok(size) = socket.read(&mut buffer).await {
                         if size == 0 {
-                            break; // Connection closed or all data received
+                            break; // All data received
                         }
-                        // print!("Received {} bytes: ", size);
                         overall_buffer.extend_from_slice(&buffer[..size]);
                     } else {
                         break;
                     }
-                    // print!("Received {} bytes: ", overall_buffer.len());
                 }
 
                 println!("Received {} bytes.", overall_buffer.len());
@@ -129,15 +125,44 @@ impl SecureTransfer {
                         println!("Error sending acknowledgment: {}", e);
                     }
 
-                    // Save the file content to a file
-                    let file_content = &overall_buffer.split_off((overall_buffer.len() as u64 - metadata.file_size) as usize);
+                    let start_delimiter = b"--START OF FILE--";
+                    let end_delimiter = b"--END OF FILE--";
+                    let start_delimiter_length = start_delimiter.len();
+                    let end_delimiter_length = end_delimiter.len();
 
-                    let (_, extension) = metadata.file_name.split_at(metadata.file_name.rfind(".").unwrap_or(0));
+                    if let Some(start_index) = overall_buffer.windows(start_delimiter_length).position(|window| window == start_delimiter) {
+                        if let Some(end_index) = overall_buffer.windows(end_delimiter_length).position(|window| window == end_delimiter) {
+                            let file_start_index = start_index + start_delimiter_length;
+                            let file_end_index = end_index + end_delimiter_length;
 
-                    if let Ok(mut file) = File::create(format!("file{}", extension)).await {
-                        file.write_all(&file_content).await.context("Failed to write file content").expect("TODO: panic message");
-                    } else {
-                        println!("Failed to create file");
+                            let file_content = &overall_buffer[file_start_index..end_index];
+                            let (_, extension) = metadata.file_name.split_at(metadata.file_name.rfind(".").unwrap_or(0));
+
+                            if let Ok(mut file) = File::create(format!("file{}", extension)).await {
+                                file.write_all(&file_content).await.context("Failed to write file content")
+                                    .expect("Failed to write file content.");
+                            } else {
+                                println!("Failed to create file");
+                            }
+
+                            let hash_message_content = &overall_buffer[file_end_index..];
+                            match serde_json::from_slice::<HashMessage>(&hash_message_content) {
+                                Ok(hash_message) => {
+                                    let original_hash = hash_message.hash;
+                                    let received_hash = EncryptDecrypt::get_hash(&file_content);
+                                    if original_hash == received_hash {
+                                        println!("Original hash: {:?}", hex::encode(original_hash));
+                                        println!("Received hash: {:?}", hex::encode(received_hash));
+                                        println!("Hashes match!");
+                                    } else {
+                                        eprintln!("Hashes do not match");
+                                    }
+                                }
+                                Err(e) => {
+                                    println!("Failed to deserialize hash message: {}", e);
+                                }
+                            }
+                        }
                     }
                 }
             });
@@ -146,7 +171,7 @@ impl SecureTransfer {
 
     pub fn extract_metadata(buffer: &Vec<u8>) -> Result<FileMetadata> {
         if buffer.len() < 8 {
-            return Err(anyhow::anyhow!("Buffer too short, can't contain metadata length"));
+            return Err(anyhow::anyhow!("Buffer too short for metadata length"));
         }
 
         let metadata_length_bytes: [u8; 8] = buffer[0..8]
@@ -173,7 +198,8 @@ impl SecureTransfer {
 
         let file = File::open(&config.file_path).await.context("Failed to open file")?;
 
-        let metadata = FileMetadata::new(transaction_id.clone(), config.file_name.to_string(), file.metadata().await?.len());
+        let metadata = FileMetadata::new(transaction_id.clone(), config.file_name.to_string(),
+                                         file.metadata().await?.len());
 
         let serialized_metadata = serde_json::to_string(&metadata)?;
 
