@@ -51,7 +51,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
             let metadata = FileMetadata {
                 file_name: config.file_name.clone(),
-                file_size: file_content.len() as u64,
+                file_size: file_content.content.len() as u64,
+                hash: file_content.hash,
             };
 
             let serialized_metadata = serde_json::to_string(&metadata)?;
@@ -67,14 +68,15 @@ async fn main() -> Result<(), Box<dyn Error>> {
             };
 
             let mut stream = SecureTransfer::connect_to_client(&address, &port).await?;
+            println!("File content length: {}", file_content.content.len());
+            println!("Sending file to: {}{}", address, port);
+            println!("Hash: {:?}", hex::encode(metadata.hash));
+
             SecureTransfer::send_metadata(&mut stream, &serialized_metadata).await?;
 
-            println!("File content length: {}", file_content.len());
         }
         _ => println!("Invalid mode selected"),
     }
-
-    // println!("Query: {}\nFilename: {}\nIP address: {} ", &config.query, &config.file_path, &config.ip_address);
 
     Ok(())
 }

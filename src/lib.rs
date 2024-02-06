@@ -7,6 +7,10 @@ use tokio::fs::File;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 
+use crate::file_encrypt_decrypt::EncryptDecrypt;
+
+mod file_encrypt_decrypt;
+
 pub struct Config {
     pub mode: String,
     pub file_path: String,
@@ -47,6 +51,12 @@ pub struct SecureTransfer {
     pub path: String,
 }
 
+pub struct FileReadResult {
+    pub content: Vec<u8>,
+    pub hash: Vec<u8>,
+}
+
+
 impl SecureTransfer {
     pub fn new(path: &str) -> SecureTransfer {
         SecureTransfer {
@@ -54,7 +64,7 @@ impl SecureTransfer {
         }
     }
 
-    pub async fn read_file_async(&self) -> Result<Vec<u8>> {
+    pub async fn read_file_async(&self) -> Result<FileReadResult> {
         let mut file = File::open(&self.path)
             .await
             .context("Failed to open file")?;
@@ -62,7 +72,10 @@ impl SecureTransfer {
         file.read_to_end(&mut content)
             .await
             .context("Failed to read file contents")?;
-        Ok(content)
+
+        let hash = EncryptDecrypt::get_hash(&content);
+
+        Ok(FileReadResult { content, hash })
     }
 
     pub async fn write_file_async(&self, data: Vec<u8>) -> Result<()> {
@@ -98,7 +111,8 @@ impl SecureTransfer {
                             // Skip the first 8 bytes and deserialize
                             match serde_json::from_slice::<FileMetadata>(&buffer[8..size]) {
                                 Ok(metadata) => {
-                                    println!("Received metadata: File name: '{}', File size: {} bytes", metadata.file_name, metadata.file_size);
+                                    println!("Received metadata: File name: '{}', File size: {} bytes\nReceived Hash: {:?}",
+                                             metadata.file_name, metadata.file_size, hex::encode(&metadata.hash));
                                 }
                                 Err(e) => {
                                     println!("Failed to deserialize metadata: {}", e);
@@ -128,13 +142,5 @@ impl SecureTransfer {
 pub struct FileMetadata {
     pub file_name: String,
     pub file_size: u64,
-}
-
-impl FileMetadata {
-    pub fn new(file_name: &str, file_size: u64) -> FileMetadata {
-        FileMetadata {
-            file_name: file_name.to_string(),
-            file_size,
-        }
-    }
+    pub hash: Vec<u8>,
 }
