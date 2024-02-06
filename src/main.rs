@@ -54,17 +54,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
             SecureTransfer::start_receiving(port).await?;
         }
         "send" => {
-            println!("File to send: {}", &config.file_path);
-            println!("File name: {}", &config.file_name);
-
-            // let transfer = SecureTransfer::new(&config.file_path);
-            // let file_content = transfer.read_file_in_chunk_async().await?;
-
-            // let metadata = FileMetadata::new(config.file_name,
-            //                                  file_content.content.len() as u64);
-
-            // let serialized_metadata = serde_json::to_string(&metadata)?;
-
+            println!("File path: {}", &config.file_path);
 
             let (address, port) = match config.destination.find(":") {
                 None => {
@@ -78,12 +68,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
             let mut stream = SecureTransfer::connect_to_client(&address, &port).await?;
             SecureTransfer::send_metadata_and_hash(&config, &mut stream).await?;
-
-            // println!("File content length: {}", file_content.content.len());
-
-            // println!("Hash: {:?}", hex::encode(metadata.hash));
-
-
         }
         _ => println!("Invalid mode selected"),
     }

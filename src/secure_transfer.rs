@@ -4,7 +4,6 @@ use anyhow::{Context, Result};
 use ring::digest;
 use ring::digest::SHA256;
 use serde::{Deserialize, Serialize};
-// use serde_json::Value::String;
 use tokio::fs::File;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
@@ -16,11 +15,6 @@ use crate::file_encrypt_decrypt::EncryptDecrypt;
 
 pub struct SecureTransfer {
     pub path: String,
-}
-
-pub struct FileReadResult {
-    pub content: Vec<u8>,
-    pub hash: Vec<u8>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -80,8 +74,8 @@ impl SecureTransfer {
         Ok(())
     }
 
-    pub async fn write_file_async(&self, data: Vec<u8>) -> Result<()> {
-        let mut file = File::create(&self.path)
+    pub async fn write_file_async(file_name: String, data: Vec<u8>) -> Result<()> {
+        let mut file = File::create(file_name)
             .await
             .context("Failed to create file")?;
         file.write_all(&data)
@@ -138,11 +132,15 @@ impl SecureTransfer {
                             let file_content = &overall_buffer[file_start_index..end_index];
                             let (_, extension) = metadata.file_name.split_at(metadata.file_name.rfind(".").unwrap_or(0));
 
-                            if let Ok(mut file) = File::create(format!("file{}", extension)).await {
-                                file.write_all(&file_content).await.context("Failed to write file content")
-                                    .expect("Failed to write file content.");
-                            } else {
-                                println!("Failed to create file");
+                            // if let Ok(mut file) = File::create(format!("file{}", extension)).await {
+                            //     file.write_all(&file_content).await.context("Failed to write file content")
+                            //         .expect("Failed to write file content.");
+                            // } else {
+                            //     println!("Failed to create file");
+                            // }
+
+                            if let Err(e) = Self::write_file_async(format!("file{}", extension), file_content.to_vec()).await {
+                                println!("Failed to write file: {}", e);
                             }
 
                             let hash_message_content = &overall_buffer[file_end_index..];
