@@ -7,4 +7,9 @@ impl EncryptDecrypt {
         let digest_value = digest::digest(&digest::SHA256, file_content);
         digest_value.as_ref().to_vec()
     }
+
+    // pub fn encrypt_file(file_content: &[u8]) -> Vec<u8> {
+    //
+    // }
+
 }

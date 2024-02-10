@@ -8,8 +8,8 @@ use rustic_secure_transfer::Config;
 
 use crate::secure_transfer::SecureTransfer;
 
-mod secure_transfer;
 mod file_encrypt_decrypt;
+mod secure_transfer;
 
 const VERSION: &str = "0.1.0";
 const APP_NAME: &str = "Rustic Secure Transfer";
