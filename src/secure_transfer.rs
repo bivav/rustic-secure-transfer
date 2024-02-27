@@ -125,10 +125,7 @@ impl SecureTransfer {
             start.elapsed().as_secs_f64()
         );
 
-        println!(
-            "File sent!\nHash generated: {:?}",
-            hex::encode(hash_message.hash)
-        );
+        println!("File sent!\nHash generated: {:?}", hex::encode(hash_message.hash));
 
         println!("Waiting for acknowledgment...");
         if let Err(err) = Self::wait_for_acknowledgment(stream).await {
@@ -228,7 +225,10 @@ impl SecureTransfer {
                             .windows(end_delimiter_length)
                             .position(|window| window == end_delimiter)
                         {
-                            println!("Time elapsed INSIDE start & end index for delimiter: {:.8} seconds", start.elapsed().as_secs_f64());
+                            println!(
+                                "Time elapsed INSIDE start & end index for delimiter: {:.8} seconds",
+                                start.elapsed().as_secs_f64()
+                            );
 
                             let file_start_index = start_index + start_delimiter_length;
                             let file_end_index = end_index + end_delimiter_length;
@@ -242,11 +242,9 @@ impl SecureTransfer {
                                 "Time elapsed to save file: {:.8} seconds",
                                 start.elapsed().as_secs_f64()
                             );
-                            if let Err(e) = Self::write_file_async(
-                                format!("file{}", extension),
-                                file_content.to_vec(),
-                            )
-                            .await
+                            if let Err(e) =
+                                Self::write_file_async(format!("file{}", extension), file_content.to_vec())
+                                    .await
                             {
                                 println!("Failed to write file: {}", e);
                             }
@@ -280,9 +278,7 @@ impl SecureTransfer {
                                 "Time elapsed before sending ack: {:.8} seconds",
                                 start.elapsed().as_secs_f64()
                             );
-                            if let Err(e) =
-                                Self::send_acknowledgment(&mut socket, "ACK_RECEIVED").await
-                            {
+                            if let Err(e) = Self::send_acknowledgment(&mut socket, "ACK_RECEIVED").await {
                                 println!("Error sending acknowledgment: {}", e);
                             }
                             println!(
@@ -341,9 +337,7 @@ impl SecureTransfer {
             println!("Error sending metadata: {}", err);
         }
 
-        if let Err(err) =
-            Self::stream_file_and_compute_hash(file, transaction_id.clone(), stream).await
-        {
+        if let Err(err) = Self::stream_file_and_compute_hash(file, transaction_id.clone(), stream).await {
             println!("Error streaming file and computing hash: {}", err);
         }
 
@@ -380,16 +374,13 @@ impl SecureTransfer {
             .read(&mut ack_buffer)
             .await
             .context("Failed to read acknowledgment from receiver")?;
-        let ack_message = from_utf8(&ack_buffer[..ack_size])
-            .context("Failed to decode acknowledgment message")?;
+        let ack_message =
+            from_utf8(&ack_buffer[..ack_size]).context("Failed to decode acknowledgment message")?;
 
         if ack_message == "ACK_RECEIVED" {
             println!("Acknowledgment received from receiver: {}", ack_message);
         } else {
-            println!(
-                "Unexpected message received as acknowledgment: {}",
-                ack_message
-            );
+            println!("Unexpected message received as acknowledgment: {}", ack_message);
         }
         Ok(())
     }

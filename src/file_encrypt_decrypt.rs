@@ -11,5 +11,4 @@ impl EncryptDecrypt {
     // pub fn encrypt_file(file_content: &[u8]) -> Vec<u8> {
     //
     // }
-
 }

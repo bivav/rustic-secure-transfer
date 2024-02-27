@@ -30,10 +30,7 @@ impl Config {
 
         // let (_, file_name) = file_path.split_at(file_path.rfind("/").unwrap() + 1);
 
-        let destination = matches
-            .get_one::<String>("destination")
-            .unwrap()
-            .to_string();
+        let destination = matches.get_one::<String>("destination").unwrap().to_string();
 
         Config {
             mode,

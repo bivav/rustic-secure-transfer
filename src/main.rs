@@ -58,9 +58,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
             let (address, port) = match config.destination.find(":") {
                 None => {
-                    println!(
-                        "Invalid IP address and port format. It should be in the form IP:Port"
-                    );
+                    println!("Invalid IP address and port format. It should be in the form IP:Port");
                     exit(1)
                 }
                 Some(index) => config.destination.split_at(index),
